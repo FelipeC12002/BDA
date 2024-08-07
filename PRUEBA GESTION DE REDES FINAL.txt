@@ -1,0 +1,302 @@
+
+------------------------------------------
+-access-list 1 permit 172.90.62.0 0.0.0.255 (red donde esten los servicios)
+-snmp-server community unach ro 1
+-snmp-server ifindex persist
+-snmpstatus -c unach -v2c *170.50.3.2
+
+-----------------CACTI-----------------
+Server
+-apt-get update
+-apt-get install snmp
+-apt-get install snmp-mibs-downloader
+
+#nano /etc/snmp/snmp.conf
+comentar la linea que dice mibs
+
+-apt-get install cacti
+apache2
+si
+-cd /usr/share/cacti/site/plugins
+-wget https://github.com/cacti/plugin_thold/archive/refs/tags/v1.5.2.tar.gz
+-tar -xvf v1.5.2.tar.gz
+-rm -r v1.5.2.tar.gz
+-mv plugin_thold-1.5.2 thold
+-apt-get install mailutils ssmtp
+
+CONFIGURAR SSMTP
+nano /etc/ssmtp/ssmtp.conf 
+• root=carrillo62@examen.net
+• mailhub=170.100.62.2:25 ->Aqui va la direccion del IP de los correos 
+• hostname=ubuntu 
+• FromLineOverrides=YES
+• UseTLS=YES
+• UseSTARTTS=YES
+
+
+Escritorio
+-apt-get install snmpd 
+
+#nano /etc/snmp/snmpd.conf
+
+agentAddress udp:161
+rocommunity unach      172.62.60.0/24
+rocommunity unach      127.0.0.1
+sysLocation    TI UNACH
+sysContact     sysadm@127.0.0.1
+sysServices    72
+includeAllDisks 10%
+
+-systemctl restart snmpd
+
+Ingresar a la direccion del servidor/cacti
+usuario: admin 
+contra: la misma que de la maquina
+
+
+-crear dispositivos
+definir el nombre, ip, tipo de dispositivo, nombre de la comunidad *unach, ping and SNMP Uptime
+
+
+-install plugins
+-Notification List
+-crear graphs
+ Unix Ping Latency
+-Crear Thresholds
+-Alerts y luego a Mail 
+-crear los trees
+-agregar los graficos a los arboles
+-publicar los arboles
+
+
+
+-----------------NAGIOS-----------------
+apt-get update
+apt-get install nagios4 nagios-plugins-contrib nagios-nrpe-plugin
+
+Activamos los modulos con los comandos
+a2enmod authz_groupfile
+a2enmod auth_digest
+• nano /etc/apache2/conf-enabled/nagios4-cgi.conf 
+  añadir las ips 
+• systemctl restart apache2
+
+nano /etc/nagios4/objects/contacts.cfg
+ contact_name                      nagiosadmin
+ #
+ alias                             Nagios Admin
+ service_notification_period       24x7
+ host_notification_period          24x7
+ service_notification_options      w,u,c,r
+ host_notification_options         d,r
+ service_notification_commands     notify-service-by-email
+ host_notification_commands        notify-host-by-email
+ email                             nagios@examen.com
+
+AGREGAR HOSTS
+
+-cd /etc/nagios4/conf.d
+-nano routers.cfg
+
+define host{
+ max_check_attempts               1
+ check_command             check-host-alive
+ host_name                 R1f1/0
+ alias                     Router 1 int f0/0
+ address                   190.50.62.1
+ use                       generic-host
+ contacts                  nagiosadmin
+ notifications_enabled     1
+
+...... lo mismo para todas las int
+
+
+
+AGREGAR SERVICIOS 
+-nano servicios.cfg
+
+define host{
+ max_check_attempts     1
+ check_command          check-host-alive
+ host_name              sicoa
+ alias                  Sistema Academico UNACH
+ address                190.50.62.2
+ parents                R1f1/0
+ use             	generic-host
+ contacts        	nagiosadmin
+ notifications_enables  1
+}
+
+define service {
+host_name            	sicoa
+service_description  	HTTP SICOA
+check_command        	check_http
+use                 	generic-service
+contacts        	nagiosadmin
+notifications_enables  1
+}
+
+
+-Cntrl O, Cntrl X 
+-nagios4 -v /etc/nagios4/nagios.cfg
+
+-systemctl restart nagios4
+
+
+-----------------SMOKEPING--------------------------
+
+Primero (UBUNTU ESCRITORIO SICOA)
+-Instalar Bind 9 en Sicoa(Ubuntu escritorio)
+-Tener acceso a internet
+-#apt-get update
+-#apt-get install bind9
+
+
+UBUNTU SERVER
+INSTALACION 
+#apt-get install smokeping
+
+Crear un enlace simbolico al fichero de configuracion de apache2
+
+# ln -s /etc/smokeping/apache2.conf /etc/apache2/conf-available/smokeping.conf
+# a2enconf smokeping
+#a2enmod cgi
+#systemctl restart apache2
+
+CONFIGURAR ALERTAS
+-nano /etc/smokeping/config.d/Alerts
+ to (correo de la cola RT)
+ from = correo creado en servidor de correo para smokeping
+
+al final 
++latencia 
+type = rtt
+pattern = >5
+comment = Prueba Latencia
+
+CONFIGURAR GENERAL
+-nano /etc/smokeping/config.d/General
+ Felipe Carrillo
+ carrillo62@examen.net (correo personal)
+ 170.100.62.2 (apuntar a RT)
+
+CONFIGURAR PROBES
+-nano /etc/smokeping/config.d/Probes
+ +EchoPingHttp
+ binary = /usr/bin/echoping
+ ignore_cache = yes
+ pings = 5
+ url = /
+
+CONFIGURAR TARGETS
+-nano /etc/smokeping/config.d/Targets
+
++ROUTERS
+menu = ROUTERS UNACH
+title = Routers de la Unach
+
+++R1f10
+menu = Router1f1/0
+title = Router2
+host = 172.90.62.1
+alerts = someloss,latencia
+
++SERVICIOS
+
+menu = Servicios Unach
+title = Servicios de la Unach
+
+++ Moodle
+
+menu = Moodle
+title = Moodle Unach
+host = 190.50.62.2
+alerts = someloss,latencia
+
++++HTTP
+probe = EchoPingHttp
+menu = Chequeo Web Sicoa
+title = Retardo Web
+host = 190.50.62.2
+alerts = someloss,latencia
+
+
+
+
+INSTALACION CORREO----------------------------------
+1. Actualizar e instalar
+   - apt-get update 
+   - apt-get install apache2
+   - apt-get install php
+   - apt-get install libapache2-mod-php
+   - apt-get install postfix
+2. Configurar Postfix
+   - escoger sitio de internet
+   - nombre del domino como mail.com (se puede elegir el que se desee)
+   - cd /etc/postfix
+   - nano main.cf main.cf.res
+   - en my hostname reemplazar por correo y añadir correo en mydestination
+   - en la ultima linea agregar home_mailbox = Maildir/ç
+   - systemctl restart postfix
+3. Instalar y configurar courier
+   - apt-get install courier-pop
+   - en el mensaje elegir no
+   - apt-get install courier-imap
+4. Instalar gestor de correos (squirrelmail)
+   - wget https://sourceforge.net/projects/squirrelmail/files/stable/1.4.22/squirrerlmail-webmail-1.4.22.zip
+   - apt-get install unzip
+   - unzip squirrelmail-webmail-1.4.22.zip
+   - mover la carpeta: 
+     mv squirrelmail-webmail-1.4.22 /smoke/www/
+   - cd /var/www/
+   - chown -R www-data:www-data squirrelmail-webmail-1.4.22/
+   - chmod 755 -R squirrelmail-webmail-1.4.22/
+   - mv squirrelmail-webmail-1.4.22 mail
+   - cd mail/config
+   - cp config_default.php config.php
+   - nano config.php
+   - cntrol w: data_dir
+   - cambiar por data_dir = '/var/www/mail/data/';
+                 attachment_dir = '/var/www/mail/attach/';
+   - cd /var/www/mail/
+   - mkdir attach
+   - cd config
+   - perl conf.pl
+   - Elijo command D
+     command >> courier
+     command >> 1
+      command >> 1
+       mail.com
+     command >> Q
+5. Configurar servidor Apache
+   - nano /etc/apache2/sites-available/000-default.conf
+     DocumentRoot /var/www/mail
+   -systemctl restart apache2
+6. Agregar usuarios al sistema
+   - adduser felipe
+7. Instalar mailutils
+   - apt-get install mailutils
+8. Mandar correos
+   - #su felipe
+   - mail marcelo@mail.com
+     Cntrl D para enviar el correo
+   - Ingresar con el usuario destinatario en la interfaz
+   - Desde este usuario enviar un correo al primer usuario
+
+
+
+CONFIGURACION RT----------------------------------
+
+-dpkg-reconfigure postfix
+cd /etc/postfix
+nano main.cf (cambiamos la ip y a donde apunta el mail)
+
+nano /etc/mailname
+(cambiamos el dominio grupo2.com)
+
+sudo nano /opt/rt5/etc/RT-Siteconfig.pm 
+-Cambiar el dominio y agregar las ips del escenario
+-cd /opt/rt5/etcnano Rt_Sit
+
+root 
+password
